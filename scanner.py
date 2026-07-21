@@ -139,7 +139,7 @@ def get_fundamentals(ticker):
 
 # ── SCAN PAGI ──
 def morning_scan():
-    print(f"\n=== MORNING SCAN {datetime.now().strftime('%H:%M')} ===")
+    print(f"\n=== SCAN {datetime.now().strftime('%H:%M')} ===")
 
     if not os.path.exists(CSV_FILE):
         with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
@@ -241,7 +241,6 @@ def morning_scan():
                 "support": round(support, 0) if support else 0
             }
 
-            # Momentum
             score_m = 0
             if rvol > 5:
                 score_m += 35
@@ -291,7 +290,6 @@ def morning_scan():
                 results_momentum.append(item)
                 all_setups.append(item)
 
-            # Reversal
             score_r = 0
             if rsi_now < 22:
                 score_r += 30
@@ -338,7 +336,6 @@ def morning_scan():
     results_momentum = sorted(results_momentum, key=lambda x: x["score"], reverse=True)
     results_reversal = sorted(results_reversal, key=lambda x: x["score"], reverse=True)
 
-    # ── Simpan alert list ──
     with open(ALERT_FILE, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["ticker", "entry_limit", "tp1", "tp2", "tp3", "stop_loss", "score", "tipe"])
@@ -349,7 +346,6 @@ def morning_scan():
                 item["score"], item["tipe"]
             ])
 
-    # ── Simpan CSV ──
     now = datetime.now()
     with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -362,7 +358,6 @@ def morning_scan():
                 item["tp1"], item["tp2"], item["tp3"]
             ])
 
-    # ── KIRIM ──
     regime_header = "🌏 **MARKET REGIME**\n"
     for line in regime_lines:
         regime_header += f"  {line}\n"
@@ -422,7 +417,7 @@ def morning_scan():
             fail_msg += f"  ...dan {len(failed_tickers) - 10} lainnya"
         send(fail_msg)
 
-    print(f"\n✅ MORNING SCAN SELESAI — {datetime.now().strftime('%H:%M')}")
+    print(f"\n✅ SCAN SELESAI — {datetime.now().strftime('%H:%M')}")
     print(f"  Momentum: {len(results_momentum)} | Reversal: {len(results_reversal)}")
 
 
@@ -432,15 +427,14 @@ def check_alerts():
 
 
 # ── JADWAL ──
-schedule.every().day.at("08:30").do(morning_scan)
-schedule.every().day.at("09:15").do(morning_scan)
-schedule.every().day.at("10:30").do(morning_scan)
+schedule.every().day.at("12:00").do(morning_scan)
+schedule.every().day.at("18:00").do(morning_scan)
 
 print("=" * 50)
 print("NEUROBRO SCANNER – INTRADAY ENTRY ALERT")
 print(f"Mulai: {datetime.now().strftime('%H:%M')} WIB")
 print("Jadwal:")
-print("  - Morning scan: 08:30, 09:15, 10:30")
+print("  - Scan: 12:00 dan 18:00 WIB")
 print("  - Alert check: mati")
 print("=" * 50)
 
