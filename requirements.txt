@@ -1,4 +1,5 @@
 pandas
-requests
-ta
 yfinance
+requests
+schedule
+ta
