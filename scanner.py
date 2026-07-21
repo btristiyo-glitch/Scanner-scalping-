@@ -18,6 +18,10 @@ REQUEST_DELAY = 3
 
 
 def send(msg, parse_mode="Markdown"):
+    if not TOKEN or not CHAT_ID:
+        print("Telegram token/chat id belum diset.")
+        return
+
     for i in range(0, len(msg), 4000):
         chunk = msg[i:i + 4000]
         for attempt in range(3):
@@ -33,7 +37,9 @@ def send(msg, parse_mode="Markdown"):
                     timeout=10,
                 )
                 break
-            except Exception:
+            except Exception as e:
+                if attempt == 2:
+                    print(f"Gagal kirim Telegram: {e}")
                 time.sleep(2)
 
 
@@ -51,7 +57,8 @@ def fetch_data(symbol, period="6mo", interval="1d"):
             return None
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
         return df
-    except Exception:
+    except Exception as e:
+        print(f"fetch_data error {symbol}: {e}")
         return None
 
 
@@ -88,7 +95,8 @@ def fetch_intraday(symbol):
         current_price = float(df["Close"].iloc[-1])
 
         return open_today, close_yest, gap_pct, support, current_price
-    except Exception:
+    except Exception as e:
+        print(f"fetch_intraday error {symbol}: {e}")
         return None, None, None, None, None
 
 
@@ -133,11 +141,12 @@ def get_fundamentals(ticker):
         per = info.get("trailingPE", None)
         mcap = info.get("marketCap", None)
         return pbv, per, mcap
-    except Exception:
+    except Exception as e:
+        print(f"get_fundamentals error {ticker}: {e}")
         return None, None, None
 
 
-# ── SCAN PAGI ──
+# ── SCAN ──
 def morning_scan():
     print(f"\n=== SCAN {datetime.now().strftime('%H:%M')} ===")
 
@@ -150,13 +159,17 @@ def morning_scan():
                 "stop_loss", "tp1", "tp2", "tp3"
             ])
 
-    with open("stocks.txt", "r") as f:
+    if not os.path.exists("stocks.txt"):
+        print("stocks.txt tidak ditemukan.")
+        return
+
+    with open("stocks.txt", "r", encoding="utf-8") as f:
         STOCKS = [x.strip() for x in f if x.strip()]
     STOCKS = [s if s.endswith(".JK") else s + ".JK" for s in STOCKS]
 
     sector_map = {}
     if os.path.exists("sectors.csv"):
-        with open("sectors.csv", "r") as f:
+        with open("sectors.csv", "r", encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 sector_map[row["ticker"].upper().replace(".JK", "")] = row["sector"].upper()
 
@@ -167,7 +180,7 @@ def morning_scan():
         regime_lines.append(result)
         time.sleep(REQUEST_DELAY)
 
-    IHSG_line = regime_lines[0]
+    IHSG_line = regime_lines[0] if regime_lines else ""
 
     results_momentum = []
     results_reversal = []
@@ -278,10 +291,7 @@ def morning_scan():
             item["score"] = round(score_m, 1)
 
             if score_m >= 40:
-                el, sl, tp1, tp2, tp3 = level_entry(
-                    item, price, item["open_today"],
-                    item["support"], rvol, atr_pct
-                )
+                el, sl, tp1, tp2, tp3 = level_entry(item, price, item["open_today"], item["support"], rvol, atr_pct)
                 item["entry_limit"] = el
                 item["stop_loss"] = sl
                 item["tp1"] = tp1
@@ -314,10 +324,7 @@ def morning_scan():
                 item_rev = item.copy()
                 item_rev["tipe"] = "reversal"
                 item_rev["score"] = round(score_r, 1)
-                el, sl, tp1, tp2, tp3 = level_entry(
-                    item_rev, price, item_rev["open_today"],
-                    item_rev["support"], rvol, atr_pct
-                )
+                el, sl, tp1, tp2, tp3 = level_entry(item_rev, price, item_rev["open_today"], item_rev["support"], rvol, atr_pct)
                 item_rev["entry_limit"] = el
                 item_rev["stop_loss"] = sl
                 item_rev["tp1"] = tp1
@@ -421,12 +428,11 @@ def morning_scan():
     print(f"  Momentum: {len(results_momentum)} | Reversal: {len(results_reversal)}")
 
 
-# ── ALERT INTRADAY ──
 def check_alerts():
     pass
 
 
-# ── JADWAL ──
+# ── JADWAL WIB ──
 schedule.every().day.at("12:00").do(morning_scan)
 schedule.every().day.at("18:00").do(morning_scan)
 
@@ -438,7 +444,6 @@ print("  - Scan: 12:00 dan 18:00 WIB")
 print("  - Alert check: mati")
 print("=" * 50)
 
-# ── JALANKAN ──
 morning_scan()
 
 while True:
