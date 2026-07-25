@@ -16,8 +16,8 @@ ALERT_FILE = "alerts.csv"
 STOCK_FILE = "stocks.txt"
 SECTOR_FILE = "sectors.csv"
 
-BATCH_SIZE = 3
-REQUEST_DELAY = 3
+BATCH_SIZE = 1
+REQUEST_DELAY = 5
 
 # Flow thresholds in IDR
 STRONG_OUTFLOW = -1_000_000_000    # -1B IDR
