@@ -27,8 +27,8 @@ MIN_DAILY_VALUE = 5_000_000_000
 COOLDOWN_DAYS = 5
 
 # trigger entry alert only when price is near/past entry
-ENTRY_TRIGGER_BUFFER_PCT = 0.35   # alert if price within 0.35% of entry or already above it for breakout
-ENTRY_ALERT_MODE = "entry"        # "entry" = send only when entry is valid / triggered
+ENTRY_TRIGGER_BUFFER_PCT = 1.0  # alert if price within 1% of entry
+ENTRY_ALERT_MODE = "entry"
 
 # =========================
 # LOGGER
@@ -86,7 +86,7 @@ def fetch_data(ticker, retries=2):
                 return r.json()
         except Exception as e:
             logging.warning(f"fetch_data error {ticker}: {e}")
-        sleep_jitter(0.3)
+            sleep_jitter(0.3)
     return None
 
 def extract_series(data):
@@ -247,7 +247,7 @@ def telegram_send(text, markdown=True, retries=3):
             logging.warning(f"Telegram failed {r.status_code}: {r.text[:200]}")
         except Exception as e:
             logging.warning(f"Telegram error attempt {i+1}: {e}")
-        time.sleep(1.5)
+            time.sleep(1.5)
     return False
 
 def format_signal_message(item):
@@ -342,18 +342,13 @@ def scan_market(tickers):
         sma20 = float(close.tail(20).mean()) if len(close) >= 20 else price
         sma50 = float(close.tail(50).mean()) if len(close) >= 50 else price
         sma200 = float(close.tail(200).mean()) if len(close) >= 200 else price
-
-        sma20_pct = ((price / sma20) - 1) * 100 if sma20 > 0 else 0
-        sma50_pct = ((price / sma50) - 1) * 100 if sma50 > 0 else 0
-        sma200_pct = ((price / sma200) - 1) * 100 if sma200 > 0 else 0
-
         td_setup = td_sequential(close)
         support, resistance = calc_support_resistance(df)
         proxy_flow_idr = get_flow_proxy(df)
         flow_bonus, flow_label = flow_score(proxy_flow_idr, avg_daily_value)
-
         sector = sector_map.get(ticker, "LAIN")
 
+        # -- SCORE M (BREAKOUT) --
         score_m = 0
         score_m += (atr_val / price) * 300
         score_m += rvol * 10
@@ -368,69 +363,52 @@ def scan_market(tickers):
         if rsi_val < 30 or rsi_val > 70:
             score_m -= 5
 
+        # -- SCORE R (REVERSAL) --
         score_r = 0
         score_r += rvol * 5
         if rsi_val < 30:
             score_r += (30 - rsi_val) * 2
-        score_r += flow_bonus
+        score_r += abs(flow_bonus) * 0.5
         score_r += (atr_val / price) * 200
         if td_setup >= 6:
             score_r += 15
-        if rvol > 1.5 and chg_pct > 0:
+        if rvol > 1.5:
             score_r += 8
 
         flow_risky = flow_label in ["DISTRIBUTION", "DISTRIBUTION STRONG"]
         gap_pct = ((price / prev_price) - 1) * 100 if prev_price > 0 else 0
 
+        # ---- BREAKOUT SIGNAL ----
         if not flow_risky and score_m >= 40 and 2 <= gap_pct <= 5:
+            if any(x["ticker"] == ticker for x in results_m):
+                continue
             entry, stop, tp1, tp2, tp3 = level_entry("breakout", price, support, atr_val)
             item = {
-                "ticker": ticker,
-                "type": "breakout",
-                "sector": sector,
-                "price": price,
-                "prev": prev_price,
-                "chg_pct": round(gap_pct, 2),
-                "volume": int(volume.iloc[-1]),
-                "value": int(daily_value),
-                "rvol": round(rvol, 2),
-                "atr_pct": round((atr_val / price) * 100, 2),
-                "rsi": round(rsi_val, 1),
-                "flow": flow_label,
+                "ticker": ticker, "type": "breakout", "sector": sector,
+                "price": price, "prev": prev_price, "chg_pct": round(gap_pct, 2),
+                "volume": int(volume.iloc[-1]), "value": int(daily_value),
+                "rvol": round(rvol, 2), "atr_pct": round((atr_val / price) * 100, 2),
+                "rsi": round(rsi_val, 1), "flow": flow_label,
                 "score_m": round(score_m, 1),
-                "entry": entry,
-                "stop": stop,
-                "tp1": tp1,
-                "tp2": tp2,
-                "tp3": tp3,
-                "support": round(support, 0),
-                "resistance": round(resistance, 0),
+                "entry": entry, "stop": stop, "tp1": tp1, "tp2": tp2, "tp3": tp3,
+                "support": round(support, 0), "resistance": round(resistance, 0),
             }
             results_m.append(item)
 
-        if not flow_risky and rsi_val < 35 and rvol > 1.2 and chg_pct > -1:
+        # ---- REVERSAL SIGNAL ----
+        if score_r >= 25 and rsi_val < 30 and rvol > 1.5 and chg_pct < -2:
+            if any(x["ticker"] == ticker for x in results_r):
+                continue
             entry, stop, tp1, tp2, tp3 = level_entry("reversal", price, support, atr_val)
             item = {
-                "ticker": ticker,
-                "type": "reversal",
-                "sector": sector,
-                "price": price,
-                "prev": prev_price,
-                "chg_pct": round(chg_pct, 2),
-                "volume": int(volume.iloc[-1]),
-                "value": int(daily_value),
-                "rvol": round(rvol, 2),
-                "atr_pct": round((atr_val / price) * 100, 2),
-                "rsi": round(rsi_val, 1),
-                "flow": flow_label,
+                "ticker": ticker, "type": "reversal", "sector": sector,
+                "price": price, "prev": prev_price, "chg_pct": round(chg_pct, 2),
+                "volume": int(volume.iloc[-1]), "value": int(daily_value),
+                "rvol": round(rvol, 2), "atr_pct": round((atr_val / price) * 100, 2),
+                "rsi": round(rsi_val, 1), "flow": flow_label,
                 "score_r": round(score_r, 1),
-                "entry": entry,
-                "stop": stop,
-                "tp1": tp1,
-                "tp2": tp2,
-                "tp3": tp3 if tp3 else 0,
-                "support": round(support, 0),
-                "resistance": round(resistance, 0),
+                "entry": entry, "stop": stop, "tp1": tp1, "tp2": tp2, "tp3": tp3 if tp3 else 0,
+                "support": round(support, 0), "resistance": round(resistance, 0),
             }
             results_r.append(item)
 
@@ -446,12 +424,9 @@ def is_entry_triggered(item):
     price = float(item["price"])
     entry = float(item["entry"])
     signal_type = item["type"]
-
     if signal_type == "breakout":
-        # breakout - trigger when price is at/above entry or very near entry
         return price >= entry * (1 - ENTRY_TRIGGER_BUFFER_PCT / 100)
     else:
-        # reversal - trigger when price is close to entry area
         return abs(price - entry) / entry * 100 <= ENTRY_TRIGGER_BUFFER_PCT
 
 def save_alert_csv(results_m, results_r):
@@ -461,7 +436,6 @@ def save_alert_csv(results_m, results_r):
             **item,
             "timestamp": datetime.now().isoformat()
         })
-
     with open(ALERT_FILE, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "ticker", "type", "sector", "price", "prev", "chg_pct", "volume", "value", "rvol",
@@ -477,7 +451,6 @@ def print_results(scanned, results_m, results_r):
     print("=" * 78)
     print(f"{'SCANNER IDX - FINAL':^78}")
     print("=" * 78)
-
     if results_m:
         print("\nBREAKOUT SIGNAL")
         print("-" * 78)
@@ -488,7 +461,6 @@ def print_results(scanned, results_m, results_r):
                 f"entry={r['entry']:<8,.0f} sl={r['stop']:<8,.0f} tp2={r['tp2']:<8,.0f} "
                 f"flow={r['flow']} sector={r['sector']}"
             )
-
     if results_r:
         print("\nREVERSAL SIGNAL")
         print("-" * 78)
@@ -499,7 +471,6 @@ def print_results(scanned, results_m, results_r):
                 f"entry={r['entry']:<8,.0f} sl={r['stop']:<8,.0f} tp2={r['tp2']:<8,.0f} "
                 f"flow={r['flow']} sector={r['sector']}"
             )
-
     print("\n" + "=" * 78)
     print(f"SCAN DONE - scanned={scanned} breakout={len(results_m)} reversal={len(results_r)}")
     print("=" * 78)
@@ -507,32 +478,38 @@ def print_results(scanned, results_m, results_r):
 def main():
     print(f"SCANNER IDX FINAL - {datetime.now().strftime('%Y-%m-%d %H:%M WIB')}")
     tickers = load_ticker_list(TICKER_FILE)
+
+    # Clear old alerts at start of scan
+    if os.path.exists(ALERT_FILE):
+        os.remove(ALERT_FILE)
+        logging.info("Cleared old alert.csv")
+
     print(f"Loaded {len(tickers)} tickers from {TICKER_FILE}")
 
     scanned, results_m, results_r = scan_market(tickers)
     print_results(scanned, results_m, results_r)
     save_alert_csv(results_m, results_r)
 
-    # 1) always send summary
-    send_summary_alert(results_m, results_r, scanned)
-
-    # 2) send entry alerts only for setups that are actually at/near entry
+    # 1) Entry alerts FIRST
     sent = 0
     for item in (results_m + results_r):
         if is_entry_triggered(item):
             ok = send_entry_alert(item)
             if ok:
                 sent += 1
-                time.sleep(1.2)
+            time.sleep(1.2)
 
-    # 3) fallback summary if no alerts were sent
+    # 2) Fallback if none triggered
     if sent == 0 and (results_m or results_r):
         fallback = (
-            f"No entry Telegram sent.\n"
+            f"No entry alert sent.\n"
             f"Setup found but not in trigger zone yet.\n"
             f"Breakout: {len(results_m)} | Reversal: {len(results_r)}"
         )
         telegram_send(fallback, markdown=False)
+
+    # 3) Summary LAST
+    send_summary_alert(results_m, results_r, scanned)
 
     print(f"Telegram entry alerts sent: {sent}")
 
